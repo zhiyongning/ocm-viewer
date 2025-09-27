@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>实时 GeoJSON 地图（WS + 属性详情）</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+
+<style>
+  html, body { height:100%; margin:0; }
+  #map { height:100vh; width:100%; }
+
+.leaflet-popup-content {
+  width: 410px !important;
+}
+.detail-link {
+  font-weight: bold;
+}
+  /* 弹窗内表格 & 样式（与之前版本保持一致） */
+  table.attr-table { border-collapse: collapse; width:100%; }
+  table.attr-table th, table.attr-table td {
+    padding: 6px 8px; border: 1px solid #ddd; vertical-align: top;
+  }
+  table.attr-table th { background:#f6f6f6; text-align:left; width:35%; }
+
+  /* 模态框样式（详情） */
+  .modal {
+    display:none; position: fixed; z-index:1200;
+    left:0; top:0; width:100%; height:100%;
+    background: rgba(0,0,0,0.5);
+  }
+  .modal-content {
+    background:#fff; margin:6% auto; padding:16px;
+    border-radius:6px; max-width:500px; max-height:75vh; overflow:auto;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.2);
+    font-family: monospace; white-space: pre-wrap;
+  }
+  .modal-close { float:right; cursor:pointer; font-weight:700; font-size:18px; }
+  a.detail-link { cursor:pointer; color:blue; text-decoration:underline; }
+
+  #map {
+  height: 100vh; /* 占满整个窗口 */
+  width: 100%;
+}
+
+#form-container {
+  position: absolute;
+  top: 0px;
+  left: 50px;
+  z-index: 1000; /* 保证在地图上方 */
+  background: rgba(255, 255, 255, 0.85); /* 半透明背景 */
+  padding: 8px 12px;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  font-size: 12px;
+}
+
+#form-container label {
+  margin-right: 8px;
+}
+
+#form-container input {
+  width: 80px;
+  margin-right: 5px;
+}
+
+#form-container button {
+  padding: 2px 8px;
+}
+
+#formResult {
+  margin-left: 10px;
+  font-weight: bold;
+}
+
+
+
+
+#modeToggleBtn {
+    position: absolute;
+    left: 1%;
+    top: 20%;
+    transform: translateY(-50%);
+    z-index: 1001;
+    background: #fff;
+    border: 1px solid #888;
+    border-radius: 4px;
+    padding: 4px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+
+    .filter-section-and {
+      margin-bottom: 10px;
+      border-bottom: 1px solid #9593b147;
+      padding-bottom: 10px;
+    }
+
+    .filter-section-or {
+      margin-bottom: 10px;
+      border-bottom: 2px solid #9593b147;
+      padding-bottom: 10px;
+    }
+
+    .filter-section-and:first-child {
+      padding-top: 10px;
+      border-top: 2px solid #9593b147;
+      padding-bottom: 10px;
+    }
+
+
+    .filter-row {
+      display: flex;
+      margin-bottom: 5px;
+      gap: 5px;
+    }
+
+    .filter-row input[placeholder^="Attribute"] {
+  width: 29ch; /* 和 placeholder 长度差不多 */
+}
+
+.filter-row input[placeholder^="Operator"] {
+  width: 21ch;
+}
+
+.filter-row input[placeholder^="Value"] {
+  width: 15ch;
+}
+
+
+
+    .add-btn {
+      font-size: 12px;
+      cursor: pointer;
+      color: blue;
+      margin-bottom: 5px;
+      display: inline-block;
+    }
+
+    .submit-btn {
+      margin-top: 10px;
+      padding: 5px 10px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+#filter-container {
+  position: absolute;
+  top: 0px;
+  right: 20px;
+  width: 550px;
+  background: rgba(255, 255, 255, 0.90);
+  padding: 3px 12px;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  font-size: 12px;
+  z-index: 1000;
+}
+
+
+
+#filter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 3px;
+  font-weight: bold;
+  cursor: pointer;
+  border-radius: 8px 8px 0 0;
+}
+
+
+
+#filter-title {
+  font-style: italic;
+  font-weight: bold;
+  color: #e14a07; /* 和你之前的一样 */
+}
+
+#toggle-btn {
+  border: none;
+  background: none;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+#filter-box {
+  padding: 1px;
+}
+.hidden {
+  display: none;
+}    
+
+.submit-container {
+  display: flex;
+  justify-content: flex-end; /* pushes button to right */
+  margin-top: auto;          /* pushes it to the bottom */
+  padding-top: 5px;
+}
+</style>
+</head>
+<body>
+
+  <body>
+<!-- 悬浮表单 -->
+<div id="form-container">
+  <label>Longitude: 
+    <input type="text" id="longitude" placeholder="经度">
+  </label>
+  <label>Latitude: 
+    <input type="text" id="latitude" placeholder="纬度">
+  </label>
+  <!--
+  <label>TileID: 
+    <input type="text" id="tileid" placeholder="TileID">
+  </label>
+-->
+  <!-- Dropdown 图层选择 -->
+  <label>Layer Group:
+    <select id="layerSelect">
+      <option value="rendering">Rendering</option>
+      <option value="isa">ISA</option>
+    </select>
+  </label>
+
+  <button id="submitBtn">Submit</button>
+  <span id="formResult" class="download-link"></span>
+<div id="fileListPopup" class="popup hidden"></div>
+</div>
+
+
+<div id="map"></div>
+
+<!-- 详情模态框 -->
+<div id="modal" class="modal">
+  <div class="modal-content">
+    <span id="modalClose" class="modal-close">&times;</span>
+    <h3>Detail Infomation</h3>
+    <pre id="modalContent"></pre>
+  </div>
+</div>
+
+
+<div id="filter-container">
+  <div id="filter-header">
+    <span id="filter-title">Filter Conditions Setting</span>
+    <button id="toggle-btn">+</button>
+  </div>
+
+  <div id="filter-box" class="hidden">
+    <div class="filter-section-and" id="and-section">
+      <strong>AND conditions</strong>
+      <div class="filter-rows"></div>
+      <span class="add-btn" onclick="addRow('and')">+ Add Condition</span>
+    </div>
+
+    <div class="filter-section-or" id="or-section">
+      <strong>OR conditions</strong>
+      <div class="filter-rows"></div>
+      <span class="add-btn" onclick="addRow('or')">+ Add Condition</span>
+    </div>
+  </div>
+</div>
+
+
+
+<div id="confirmDialog" style="
+    display:none;
+    position:absolute;
+    z-index:1500;
+    background:white;
+    padding:12px;
+    border:1px solid #999;
+    border-radius:6px;
+    box-shadow:0 2px 8px rgba(0,0,0,0.3);
+">
+  <p id="dialogText"></p>
+  <button id="confirmYes">✅ 确认</button>
+  <button id="confirmNo">❌ 取消</button>
+</div>
+
+<div id="modeToggleBtn">
+  <span>切</span>
+  <span>换</span>
+  <span>模</span>
+  <span>式</span>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
+<script>
+  let filters;
+const toggleBtn = document.getElementById("toggle-btn");
+const filterBox = document.getElementById("filter-box");
+
+toggleBtn.addEventListener("click", () => {
+  filterBox.classList.toggle("hidden");
+  toggleBtn.textContent = filterBox.classList.contains("hidden") ? "+" : "−";
+   event.stopPropagation();
+});
+document.addEventListener("click", function (event) {
+
+  const container = document.getElementById("filter-container");
+  const box = document.getElementById("filter-box");
+
+  if (container.contains(event.target)) return;
+
+
+  if (event.target.closest(".remove-btn")) return;
+
+  box.classList.add("hidden");
+  toggleBtn.textContent = box.classList.contains("hidden") ? "+" : "−";
+});
+
+function addRow(type) {
+  const section = document.querySelector(`#${type}-section .filter-rows`);
+  const row = document.createElement("div");
+  row.className = "filter-row";
+  row.innerHTML = `
+    <input type="text" placeholder="Attribute (e.g., forward_speed_limit)" />
+    <input type="text" placeholder="Operator (=, >, <, >=, <=)" />
+    <input type="text" placeholder="Value (e.g., 50)" />
+    <button  class="remove-btn">❌</button>
+  `;
+  row.querySelector(".remove-btn").addEventListener("click", () => {
+    section.removeChild(row);
+   
+    updateSummary();
+
+  });
+
+  // Update summary when user types
+  row.querySelectorAll("input").forEach(input => {
+    input.addEventListener("input", updateSummary);
+  });
+
+  section.appendChild(row);
+  updateSummary();
+}
+
+function getFilters() {
+  const filters = { and: [], or: [] };
+
+  ["and", "or"].forEach(type => {
+    const rows = document.querySelectorAll(`#${type}-section .filter-row`);
+    rows.forEach(row => {
+      const inputs = row.querySelectorAll("input");
+      const key = inputs[0].value.trim();
+      const op = inputs[1].value.trim();
+      const value = inputs[2].value.trim();
+      if (key && op && value) {
+        filters[type].push({ key, op, value });
+      }
+    });
+  });
+
+  return filters;
+}
+
+function updateSummary() {
+  const filters = getFilters();
+  const titleSpan = document.getElementById("filter-title");
+  let summaryText = "";
+
+  const sections = [];
+
+  if (filters.and.length > 0) {
+    let andText = filters.and.map(f => `${f.key} ${f.op} ${f.value}`).join(" AND ");
+    if (filters.and.length > 1) andText = `(${andText})`;
+    sections.push(andText);
+  }
+
+  if (filters.or.length > 0) {
+    let orText = filters.or.map(f => `${f.key} ${f.op} ${f.value}`).join(" OR ");
+    if (filters.or.length > 1) orText = `(${orText})`;
+    sections.push(orText);
+  }
+
+  if (sections.length > 0) {
+    summaryText = sections.join(" AND ");
+    titleSpan.textContent = "Filter: " + summaryText + " applied.";
+  } else {
+    titleSpan.textContent = "Filter Conditions Setting";
+  }
+
+  submitFilters();
+}
+
+function submitFilters() {
+  filters = getFilters();
+  console.log("Filters submitted:", filters);
+
+}
+
+let selectedMarker = null;
+    // 服务器注入的 apiKey，可以同步使用
+const apiKey = "<%= apiKey %>";
+
+
+document.getElementById("layerSelect").addEventListener("change", async () => {
+  const selectedLayer = document.getElementById("layerSelect").value;
+  if(selectedLayer == "rendering")
+  {
+        console.log('GeoJSON load rendering layer group');
+    loadRenderingLayer();
+  }
+  else if(selectedLayer == "isa")
+  {
+
+        console.log('GeoJSON load ISA Layer');
+  loadIsaLayer();
+  }
+  });
+  let lastInputValues = {};
+  // 表单提交事件
+  document.getElementById("submitBtn").addEventListener("click", async () => {
+    const longitude = document.getElementById("longitude").value.trim();
+    const latitude = document.getElementById("latitude").value.trim();
+    //const tileid = document.getElementById("tileid").value.trim();
+
+    if (selectedMarker) {
+      map.removeLayer(selectedMarker);
+    }
+
+    // 添加新的 Marker
+    if(latitude && longitude)
+    {
+      selectedMarker = L.marker([latitude, longitude]).addTo(map);
+      map.setView([latitude, longitude], 14);
+    }
+
+    const selectedLayer = document.getElementById("layerSelect").value;
+    const area = "point";
+    try {
+      
+      const res = await fetch("/api/loadOcmData", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({area, selectedLayer, longitude, latitude, filters})
+      });
+
+      const data = await res.json();
+      const resultEl = document.getElementById("formResult");
+
+      if (res.ok) {
+        resultEl.style.color = "limegreen";
+        resultEl.textContent = "Data is loading...";
+      } else {
+        resultEl.style.color = "red";
+        resultEl.textContent = "Missed Parameters" ;
+      }
+    } catch (err) {
+      console.error("请求出错", err);
+      document.getElementById("formResult").textContent = "请求出错: " + err.message;
+    }
+
+        lastInputValues = { longitude, latitude, selectedLayer };
+        document.getElementById("longitude").value = lastInputValues.longitude;
+    document.getElementById("latitude").value = lastInputValues.latitude;
+    document.getElementById("layerSelect").value = lastInputValues.selectedLayer;
+  });
+
+const hereTrafficTileUrl = `https://traffic.maps.hereapi.com/v3/flow/mc/{z}/{x}/{y}/png8?size=256&apiKey=${apiKey}`;
+const hereTileUrl = `https://maps.hereapi.com/v3/base/mc/{z}/{x}/{y}/png8?size=512&apiKey=${apiKey}`;
+const hereSubdomains = ["1", "2", "3", "4"];
+
+/* ========= 地图 & 图层逻辑 ========= */
+const map = L.map('map').setView([25.0711, 121.5305], 11);
+
+
+L.tileLayer(hereTileUrl, {
+  attribution: '地图数据 &copy; <a href="https://developer.here.com">HERE</a>',
+  maxZoom: 20,
+  subdomains: hereSubdomains
+}).addTo(map);
+
+/*
+L.tileLayer(hereTrafficTileUrl, {
+  attribution: '地图数据 &copy; <a href="https://developer.here.com">HERE</a>',
+  maxZoom: 20,
+  subdomains: hereSubdomains
+}).addTo(map);
+*/
+
+//选取矩形框
+
+let selectMode = false;
+let rectangle = null;
+let startLatLng = null;
+let allowClickPopup = true;
+let isDragging = false;
+
+
+const confirmDialog = document.getElementById("confirmDialog");
+const dialogText = document.getElementById("dialogText");
+const confirmYes = document.getElementById("confirmYes");
+const confirmNo = document.getElementById("confirmNo");
+
+// 切换模式
+const modeBtn = document.getElementById("modeToggleBtn");
+L.DomEvent.disableClickPropagation(modeBtn); // 阻止事件冒泡到地图
+
+
+
+modeBtn.addEventListener("click", () => {
+    selectMode = !selectMode;
+    if (selectMode) {
+        map.dragging.disable();
+        modeBtn.style.background = "#ccc";
+    } else {
+        map.dragging.enable();
+        modeBtn.style.background = "#fff";
+        // 清理正在绘制的矩形
+        if (rectangle) {
+            map.removeLayer(rectangle);
+            rectangle = null;
+        }
+    }
+});
+
+map.on("mousedown", e => {
+  if (!selectMode) return;
+
+  startLatLng = e.latlng;
+  isDragging = false; // 默认没拖动
+});
+
+map.on("mousemove", e => {
+  if (!selectMode || !startLatLng) return;
+
+  const moveDistance = map.latLngToContainerPoint(e.latlng)
+                       .distanceTo(map.latLngToContainerPoint(startLatLng));
+  if (moveDistance > 5) isDragging = true; // 超过阈值认定为拖动
+
+  const bounds = L.latLngBounds(startLatLng, e.latlng);
+  if (rectangle) rectangle.setBounds(bounds);
+  else rectangle = L.rectangle(bounds, { color: "#ff7800", weight: 1 }).addTo(map);
+});
+
+map.on("mouseup", e => {
+  if (!selectMode) return;
+  if (!isDragging) return;
+
+    if (e.originalEvent.target.closest(".rectangle-popup")) {
+    return;
+  }
+  L.DomEvent.stopPropagation(e);
+
+  const bounds = rectangle.getBounds();
+  const swlat = bounds.getSouthWest().lat.toFixed(5);
+  const swlon = bounds.getSouthWest().lng.toFixed(5);
+  const nelat = bounds.getNorthEast().lat.toFixed(5);
+  const nelon = bounds.getNorthEast().lng.toFixed(5);
+
+  const northEast = bounds.getNorthEast();
+  const northWest = bounds.getNorthWest();
+
+// 矩形上边的中点
+const topCenter = L.latLng(
+  (northEast.lat + northWest.lat) / 2,
+  (northEast.lng + northWest.lng) / 2
+);
+
+  if (!bounds.isValid() || bounds.getSouthWest().equals(bounds.getNorthEast())) {
+    console.log("bounds too small, skipping popup");
+    return;
+}
+
+  map.dragging.disable();
+const popupContent = `
+  <div class="rectangle-popup">
+    <p><strong>Southwest:</strong> ${swlon}, ${swlat}
+      <strong>Northeast:</strong> ${nelon}, ${nelat}</p>
+    <p>Do you want to load OCM data in this bounding box?</p>
+    <div style="display: flex; justify-content: flex-end; gap: 5px;">
+      <button id="rectYesBtn">✅ Yes</button>
+      <button id="rectNoBtn">❌ No</button>
+    </div>
+  </div>
+`;
+
+
+  // 使用 addTo 而不是 openOn，避免被 GeoJSON popup 覆盖
+  const rectPopup = L.popup({
+    offset: L.point(0,0),
+    autoPan: true,
+    closeOnClick: false,
+    className: 'rectangle-popup'
+  })
+  .setLatLng(topCenter)
+  .setContent(popupContent).openOn(map);
+
+  //rectPopup.addTo(map);
+
+
+  // 延迟绑定按钮事件
+  setTimeout(() => {
+    const popupEl = rectPopup.getElement();
+    if (!popupEl) return;
+
+    popupEl.querySelector("#rectYesBtn").addEventListener("click", () => {
+      //alert("You clicked Yes for rectangle!");
+
+      map.removeLayer(rectPopup); // 手动关闭 popup
+           cleanupRectangle();
+      isDragging = false;
+      loadDataByBbox(swlon, swlat, nelon, nelat);
+      //map.dragging.enable();
+    });
+
+    popupEl.querySelector("#rectNoBtn").addEventListener("click", () => {
+      //alert("You clicked No for rectangle!");
+
+      map.removeLayer(rectPopup);
+           cleanupRectangle();
+      isDragging = false;
+      //map.dragging.enable();
+    });
+  }, 50);
+
+  startLatLng = null;
+});
+
+function loadDataByBbox(swlon, swlat, nelon, nelat) {
+    const selectedLayer = document.getElementById("layerSelect").value;
+    const resultEl = document.getElementById("formResult");
+    const area = "bbox";
+    resultEl.textContent = "Loading data..."
+   fetch("/api/loadOcmData", {
+     method: "POST",
+     headers: { "Content-Type": "application/json" },
+     body: JSON.stringify({ area, selectedLayer, swlon, swlat, nelon, nelat , filters})
+   }).then(res => res.json()).then(console.log);
+}
+// 清理矩形
+function cleanupRectangle() {
+  if (rectangle) {
+    map.removeLayer(rectangle);
+    rectangle = null;
+  }
+}
+
+//选取矩形框完成
+
+map.on("click", function (e) {
+
+
+   if (isDragging || !selectMode) return; 
+
+  const latitude = e.latlng.lat.toFixed(6);
+  const longitude = e.latlng.lng.toFixed(6);
+
+    if (selectedMarker) {
+    map.removeLayer(selectedMarker);
+  }
+
+
+    selectedMarker = L.marker(e.latlng).addTo(map);
+
+  // Popup 内容带 Yes / No 按钮
+const popupContent = `
+  <div>
+    <p><strong>Current Coordinate</strong> - Longitude: ${longitude}, Latitude: ${latitude}</p>
+    <p>Do you want to load OCM data?</p>
+    <div style="display: flex; justify-content: flex-end; gap: 5px;">
+      <button id="yesBtn">✅ Yes</button>
+      <button id="noBtn">❌ No</button>
+    </div>
+  </div>
+`;
+
+const popup = L.popup({
+  offset: L.point(0, -30) // 上移 30px         // 最大宽度
+})
+  .setLatLng(e.latlng)
+  .setContent(popupContent)
+  .openOn(map);
+
+  startLatLng = null;
+  // 绑定按钮事件
+  setTimeout(() => {
+    document.getElementById("yesBtn").addEventListener("click", () => {
+      loadDataByPoint(latitude, longitude); // 调用后台函数
+      map.closePopup(); // 关闭 popup
+    });
+
+    document.getElementById("noBtn").addEventListener("click", () => {
+      map.closePopup();
+    });
+  }, 50);
+});
+
+
+function loadDataByPoint(latitude, longitude) {
+
+
+    const selectedLayer = document.getElementById("layerSelect").value;
+    document.getElementById("latitude").value = latitude;
+    document.getElementById("longitude").value = longitude;
+     const resultEl = document.getElementById("formResult");
+     const area = "point";
+    resultEl.textContent = "Loading data..."
+
+   fetch("/api/loadOcmData", {
+     method: "POST",
+     headers: { "Content-Type": "application/json" },
+     body: JSON.stringify({ area, selectedLayer, longitude, latitude , filters })
+   }).then(res => res.json()).then(console.log);
+}
+
+
+
+
+let geojsonLayer = null;
+let geojsonIsaLayer = null;
+
+/* 模态框元素 */
+const modal = document.getElementById('modal');
+const modalContent = document.getElementById('modalContent');
+const modalClose = document.getElementById('modalClose');
+modalClose.onclick = () => { modal.style.display = 'none'; };
+window.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+
+/* 将属性对象转为表格（简洁展示）——保留 attributes 的“摘要 + 查看详细属性” */
+function formatAttributesSummary(attrs) {
+  if (!Array.isArray(attrs) || attrs.length === 0) return '无属性数据';
+  const attr = attrs[0];
+  const keysToShow = ['functional_class','forward_speed_limit','backward_speed_limit', 'under_construction', 'truck_toll', 'z_level'];
+  let html = '<table class="attr-table">';
+  keysToShow.forEach(k => {
+    if (attr.hasOwnProperty(k)) {
+      html += `<tr><th>${k}</th><td>${attr[k]}</td></tr>`;
+    }
+  });
+  html += `<tr><th>More</th><td><a class="detail-link" id="showDetailsLink">Details</a></td></tr>`;
+  html += '</table>';
+  return html;
+}
+
+function formatPropertiesTable(properties) {
+  let html = '<table class="attr-table">';
+  for (const key in properties) {
+    let val = properties[key];
+    if (key === 'attributes') {
+      html += `<tr><th>${key}</th><td>${formatAttributesSummary(val)}</td></tr>`;
+    } else {
+      if (typeof val === 'object') val = JSON.stringify(val);
+      html += `<tr><th>${key}</th><td>${val}</td></tr>`;
+    }
+  }
+  html += '</table>';
+  return html;
+}
+
+    // 高亮样式
+    const highlightStyle = {
+      color: "red",
+      weight: 3
+    };
+
+    let highlightedLayer = null;
+let activeDecorator = null; 
+/* 绑定每个 feature 的交互（点击弹出 popup，popup 打开时绑定详情链接） */
+function onEachRenderFeature(feature, layer) {
+
+
+  const props = feature.properties || {};
+  const popupHtml = formatPropertiesTable(props);
+  layer.bindPopup(popupHtml);
+
+    layer.on("click", () => {
+    // 移除之前的箭头
+    if (activeDecorator) {
+      map.removeLayer(activeDecorator);
+      activeDecorator = null;
+    }
+
+    // 给当前选中的线加箭头
+    activeDecorator = L.polylineDecorator(layer, {
+      patterns: [
+        {
+          offset: "10%",
+          repeat: "20%",
+          symbol: L.Symbol.arrowHead({
+            pixelSize: 6,
+            polygon: true,
+            pathOptions: { color: 'blue', fillOpacity: 1 }
+          })
+        }
+      ]
+    }).addTo(map);
+  });
+
+
+  layer.on('popupopen', () => {
+    isDragging = false;
+    startLatLng = null;
+                  // 取消之前的高亮
+              if (highlightedLayer) {
+                geojsonLayer.resetStyle(highlightedLayer);
+              }
+              // 高亮当前
+              layer.setStyle(highlightStyle);
+              highlightedLayer = layer;
+
+    // 绑定“查看详细属性”链接
+    const link = document.getElementById('showDetailsLink');
+    if (link) {
+      link.onclick = (e) => {
+        e.preventDefault();
+        // 显示完整 attributes 内容（格式化 JSON）
+        const full = props.attributes ? JSON.stringify(props.attributes, null, 2) : "无";
+        modalContent.textContent = full;
+        modal.style.display = 'block';
+      };
+    }
+  });
+}
+
+/* 绑定每个 feature 的交互（点击弹出 popup，popup 打开时绑定详情链接） */
+function onEachIsaFeature(feature, layer) {
+
+
+  const props = feature.properties || {};
+  const popupHtml = formatPropertiesTable(props);
+  layer.bindPopup(popupHtml);
+
+      layer.on("click", () => {
+    // 移除之前的箭头
+    if (activeDecorator) {
+      map.removeLayer(activeDecorator);
+      activeDecorator = null;
+    }
+
+    // 给当前选中的线加箭头
+    activeDecorator = L.polylineDecorator(layer, {
+      patterns: [
+        {
+          offset: "50%",
+          repeat: 0,
+          symbol: L.Symbol.arrowHead({
+            pixelSize: 6,
+            polygon: true,
+            pathOptions: { color: 'blue', fillOpacity: 1 }
+          })
+        }
+      ]
+    }).addTo(map);
+  });
+
+  layer.on('popupopen', () => {
+
+    isDragging = false;
+    startLatLng = null;
+                  // 取消之前的高亮
+              if (highlightedLayer) {
+                geojsonIsaLayer.resetStyle(highlightedLayer);
+              }
+              // 高亮当前
+              layer.setStyle(highlightStyle);
+              highlightedLayer = layer;
+
+    // 绑定“查看详细属性”链接
+    const link = document.getElementById('showDetailsLink');
+    if (link) {
+      link.onclick = (e) => {
+        e.preventDefault();
+        // 显示完整 attributes 内容（格式化 JSON）
+        const full = props.attributes ? JSON.stringify(props.attributes, null, 2) : "无";
+        modalContent.textContent = full;
+        modal.style.display = 'block';
+      };
+    }
+  });
+}
+
+/* 加载并渲染 GeoJSON（并恢复交互） */
+
+async function loadRenderingLayer() {
+  try {
+   const resultEl = document.getElementById("formResult");
+    resultEl.textContent = "Loading data..."
+    const response = await fetch('/geodata/data.geojson?t=' + Date.now());
+    if (!response.ok) 
+    {
+      resultEl.style.color = "orange";
+      resultEl.textContent = "Click Submit for refreshing data."
+      throw new Error('加载 data.geojson 失败: ' + response.status);
+    }
+    const data = await response.json();
+
+
+    if (geojsonIsaLayer) {
+      map.removeLayer(geojsonIsaLayer);
+      geojsonIsaLayer = null;
+    }
+    if(geojsonLayer)
+    {
+      map.removeLayer(geojsonLayer);
+      geojsonLayer = null;
+    }
+  
+
+    geojsonLayer = L.geoJSON(data, {
+        style: (f) => ({ color: 'purple', weight: 2 }),
+      onEachFeature: onEachRenderFeature
+    }).addTo(map);
+
+    // 自动缩放到数据范围（如果有效）
+    try {
+      const b = geojsonLayer.getBounds();
+      if (b.isValid()) map.fitBounds(b, { padding: [20,20] });
+    } catch (e) {
+      console.warn('fitBounds failed:', e);
+    }
+
+    const bounds = geojsonLayer.getBounds();
+
+if (bounds.isValid()) {  // 确保边界框有效（非空）
+  // 获取西南角（最小纬度、最小经度）
+  const sw = bounds.getSouthWest();
+    // 获取东北角（最大纬度、最大经度）
+  const ne = bounds.getNorthEast();
+}
+
+    console.log('GeoJSON loaded & rendered');
+
+
+      resultEl.style.color = "limegreen";
+   resultEl.textContent = "Completed"
+  } catch (err) {
+    console.error('加载 GeoJSON 错误:', err);
+  }
+}
+
+/* 加载并渲染 GeoJSON（并恢复交互） */
+
+async function loadIsaLayer() {
+  try {
+   const resultEl = document.getElementById("formResult");
+      resultEl.style.color = "limegreen";
+   resultEl.textContent = "Loading data ... "
+    const response = await fetch('/geodata/isa.geojson?t=' + Date.now());
+    if (!response.ok) 
+    {
+      resultEl.style.color = "orange";
+      resultEl.textContent = "Click Submit for refreshing data."
+      throw new Error('加载 isa.geojson 失败: ' + response.status);
+    }
+    const data = await response.json();
+
+ 
+    if (geojsonIsaLayer) {
+      map.removeLayer(geojsonIsaLayer);
+      geojsonIsaLayer = null;
+    }
+    if(geojsonLayer)
+    {
+      map.removeLayer(geojsonLayer);
+      geojsonLayer = null;
+    }
+    
+
+    geojsonIsaLayer = L.geoJSON(data, {
+          style: function (feature) {
+            if(feature.properties.host_tile_id != 0)
+              return { color: "blue", weight: 2 };
+            else
+              return { color: "orange", weight: 2 };
+    },
+      onEachFeature: onEachIsaFeature
+    }).addTo(map);
+ 
+
+    // 自动缩放到数据范围（如果有效）
+    try {
+      const b = geojsonIsaLayer.getBounds();
+      if (b.isValid()) map.fitBounds(b, { padding: [20,20] });
+    } catch (e) {
+      console.warn('fitBounds failed:', e);
+    }
+
+    const bounds = geojsonIsaLayer.getBounds();
+
+if (bounds.isValid()) {  // 确保边界框有效（非空）
+  // 获取西南角（最小纬度、最小经度）
+  const sw = bounds.getSouthWest();
+    // 获取东北角（最大纬度、最大经度）
+  const ne = bounds.getNorthEast();
+}
+
+    console.log('Isa GeoJSON loaded & rendered');
+
+      resultEl.style.color = "limegreen";
+   resultEl.textContent = "Completed."
+  } catch (err) {
+    console.error('加载 GeoJSON 错误:', err);
+  }
+}
+
+/* 首次加载 */
+loadRenderingLayer();
+//loadIsaLayer();
+/* ========= WebSocket 监听（接收 server 推送的更新通知） ========= */
+const ws = new WebSocket(`ws://${location.host}`);
+
+ws.onopen = () => { console.log('WS connected'); };
+ws.onmessage = (evt) => {
+  try {
+    const msg = JSON.parse(evt.data);
+    if (msg.type === 'geojson-updated') {
+      console.log('收到 geojson-updated，重新加载数据...');
+      
+        const selectedLayer = document.getElementById("layerSelect").value;
+        if(selectedLayer == "rendering")
+        {
+              console.log('GeoJSON load rendering Layer');
+          loadRenderingLayer();
+        }
+        else if(selectedLayer == "isa")
+        {
+
+              console.log('GeoJSON load ISA Layer');
+        loadIsaLayer();
+        }
+  
+      
+
+    }
+  } catch (e) {
+    // 也可能是简单字符串
+    if (evt.data === 'update' || evt.data === 'geojson-updated') {
+      loadRenderingLayer();
+    }
+  }
+};
+
+
+ws.onclose = () => { console.log('WS closed'); };
+ws.onerror = (e) => { console.error('WS error', e); };
+</script>
+</body>
+</html>
