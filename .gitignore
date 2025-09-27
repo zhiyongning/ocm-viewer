@@ -8,5 +8,9 @@
 # Logs
 logs
 *.log
+*.geojson
 npm-debug.log*
+/diskcache/
+/node_modules/
+package-lock.json
 
