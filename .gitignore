@@ -1,6 +1,6 @@
 
 .DS_Store
-
+/server/diskcache/
 /build/
 /dist/
 
