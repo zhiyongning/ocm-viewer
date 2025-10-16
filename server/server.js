@@ -1,9 +1,20 @@
 // server.js
 const { spawn } = require('child_process');
 const path = require("path");
-const cppExePathLoadRoad = path.join(__dirname, 'load-road');
-const cppExePathLoadIsa = path.join(__dirname, 'load-isa');
-const cppExePathOcmLoader = path.join(__dirname, 'ocm-loader');
+const os = require("os"); // 引入os模块判断操作系统
+
+// 判断当前操作系统是否为Windows
+const isWindows = os.platform() === 'win32';
+
+// 工具函数：根据平台自动添加可执行文件后缀
+function getExePath(dir, exeName) {
+  // Windows下添加.exe后缀，其他平台直接使用文件名
+  const fileName = isWindows ? `${exeName}.exe` : exeName;
+  return path.join(dir, fileName);
+}
+
+const cppExePathOcmLoader = getExePath(__dirname, 'ocm-loader');
+
 const express = require("express");
 const os = require('os');
 const fs = require("fs");
