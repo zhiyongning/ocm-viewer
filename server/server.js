@@ -16,7 +16,6 @@ function getExePath(dir, exeName) {
 const cppExePathOcmLoader = getExePath(__dirname, 'ocm-loader');
 
 const express = require("express");
-const os = require('os');
 const fs = require("fs");
 const WebSocket = require("ws");
 
