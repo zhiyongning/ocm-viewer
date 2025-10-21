@@ -17,6 +17,8 @@ const cppExePathOcmLoader = getExePath(__dirname, 'ocm-loader');
 
 const express = require("express");
 const fs = require("fs");
+const fsWatch = require('fs').watch;
+
 const WebSocket = require("ws");
 
 const app = express();
@@ -69,9 +71,9 @@ app.use(express.static(path.join(__dirname, "public")));
 
 
 app.post('/api/loadOcmData', (req, res) => {
-  const { area, selectedLayer, swlon, swlat, nelon, nelat, longitude, latitude, filters } = req.body;
+  const { area, selectedLayer, swlon, swlat, nelon, nelat, longitude, latitude, tileId, filters } = req.body;
 
-   console.log("server.js -> loadOcmData:", longitude, latitude, selectedLayer, filters);
+   console.log("server.js -> loadOcmData:", longitude, latitude, selectedLayer, tileId, filters);
   let args = [];
   let child; 
   let filterArg = "";
@@ -91,8 +93,19 @@ if (filters) {
 }
 
 console.log("Generated filterArg:", filterArg);
+  if(tileId !== undefined && tileId !== null && tileId !== '' )
+  {
+        args = [
+      selectedLayer, // layerGroupName
+      `tile:${tileId}` // area
+    ];
+    if (filterArg) args.push(`filter:${filterArg}`);
+     console.log("server.js -> c++ args:",  filterArg);
 
-  if (longitude !== undefined && longitude !== null && longitude !== '' &&
+    child = spawn(cppExePathOcmLoader, args);
+    res.json({ type: "tile", args });
+  }
+  else if (longitude !== undefined && longitude !== null && longitude !== '' &&
       latitude !== undefined && latitude !== null && latitude !== '') {
     // 单点请求
 
@@ -190,20 +203,24 @@ try {
 
 
 
-
 const DEBOUNCE_DELAY = 300; // ms
 const filesToWatch = [
   "geodata/data.geojson",
   "geodata/isa.geojson",
 ];
 
-
+const dirsToWatchFileCount = [
+  "rawdata"
+];
 
 // 监控 geojson 文件
 
 
 const lastFileContents = new Map();
 const debounceTimers = new Map();
+
+const lastDirFileCounts = new Map();
+const dirDebounceTimers = new Map();
 
 filesToWatch.forEach((filePath) => {
   const dir = path.dirname(filePath);
@@ -241,6 +258,60 @@ filesToWatch.forEach((filePath) => {
           }
         }
       }, DEBOUNCE_DELAY)
+    );
+  });
+});
+
+dirsToWatchFileCount.forEach((dirPath) => {
+  // 初始化目录文件数量
+// 修正：初始化目录文件数量（使用Promise式API）
+const initFileCount = async () => {
+  try {
+    // 关键修正：使用 fs.promises.readdir 而非 fs.readdir
+    const files = await fs.promises.readdir(dirPath); 
+    lastDirFileCounts.set(dirPath, files.length);
+  } catch (err) {
+    console.error(`初始化目录监控失败 ${dirPath}:`, err);
+  }
+};
+initFileCount();
+
+  // 监控目录变化（文件新增/删除）
+  fsWatch(dirPath, (eventType) => {
+    // 过滤掉非修改事件（如权限变更）
+    if (!['rename', 'change'].includes(eventType)) return;
+
+    if (dirDebounceTimers.has(dirPath)) clearTimeout(dirDebounceTimers.get(dirPath));
+
+    dirDebounceTimers.set(
+      dirPath,
+      // 监控目录变化的定时器逻辑中也需要修正
+      setTimeout(async () => {
+        try {
+          // 同样使用 fs.promises.readdir
+          const files = await fs.promises.readdir(dirPath); 
+          const currentCount = files.length;
+          const lastCount = lastDirFileCounts.get(dirPath) || 0;
+
+           if (currentCount !== lastCount) {
+            const change = currentCount - lastCount;
+            lastDirFileCounts.set(dirPath, currentCount);
+            console.log(
+              `📁 ${dirPath} 文件数量变化: ${lastCount} → ${currentCount} (${change > 0 ? '新增' : '删除'} ${Math.abs(change)} 个文件)`
+            );
+            // 通知前端目录文件数量变化
+            broadcast({
+              type: "dir-file-count-updated",
+              dir: dirPath,
+              count: currentCount,
+              change: change
+            });
+          }
+        } catch (err) {
+          console.error(`监控目录 ${dirPath} 失败:`, err);
+        }
+      }, DEBOUNCE_DELAY)
+
     );
   });
 });

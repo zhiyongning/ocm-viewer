@@ -217,16 +217,19 @@
   <label>Latitude: 
     <input type="text" id="latitude" placeholder="纬度">
   </label>
-  <!--
-  <label>TileID: 
-    <input type="text" id="tileid" placeholder="TileID">
+  
+  <label>Tile ID: 
+    <input type="text" id="tileid" placeholder="HERE Tile ID">
   </label>
--->
+
   <!-- Dropdown 图层选择 -->
   <label>Layer Group:
     <select id="layerSelect">
       <option value="rendering">Rendering</option>
       <option value="isa">ISA</option>
+      <option value="routing">Routing</option>
+      <option value="ehorizon">eHorizon</option>
+      <option value="interop">Interop</option>
     </select>
   </label>
 
@@ -417,13 +420,16 @@ document.getElementById("layerSelect").addEventListener("change", async () => {
         console.log('GeoJSON load ISA Layer');
   loadIsaLayer();
   }
+  else{
+     console.log('Dowload Layer'+ selectedLayer);
+  }
   });
   let lastInputValues = {};
   // 表单提交事件
   document.getElementById("submitBtn").addEventListener("click", async () => {
     const longitude = document.getElementById("longitude").value.trim();
     const latitude = document.getElementById("latitude").value.trim();
-    //const tileid = document.getElementById("tileid").value.trim();
+    const tileId = document.getElementById("tileid").value.trim();
 
     if (selectedMarker) {
       map.removeLayer(selectedMarker);
@@ -443,7 +449,7 @@ document.getElementById("layerSelect").addEventListener("change", async () => {
       const res = await fetch("/api/loadOcmData", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({area, selectedLayer, longitude, latitude, filters})
+        body: JSON.stringify({area, selectedLayer, longitude, latitude, tileId, filters})
       });
 
       const data = await res.json();
@@ -467,21 +473,31 @@ document.getElementById("layerSelect").addEventListener("change", async () => {
     document.getElementById("layerSelect").value = lastInputValues.selectedLayer;
   });
 
-const hereTrafficTileUrl = `https://traffic.maps.hereapi.com/v3/flow/mc/{z}/{x}/{y}/png8?size=256&apiKey=${apiKey}`;
-const hereTileUrl = `https://maps.hereapi.com/v3/base/mc/{z}/{x}/{y}/png8?size=512&apiKey=${apiKey}`;
-const hereSubdomains = ["1", "2", "3", "4"];
+
+
 
 /* ========= 地图 & 图层逻辑 ========= */
 const map = L.map('map').setView([25.0711, 121.5305], 11);
 
-
+/*
+const hereTileUrl = `https://maps.hereapi.com/v3/base/mc/{z}/{x}/{y}/png8?size=512&apiKey=${apiKey}`;
+const hereSubdomains = ["1", "2", "3", "4"];
 L.tileLayer(hereTileUrl, {
   attribution: '地图数据 &copy; <a href="https://developer.here.com">HERE</a>',
   maxZoom: 20,
   subdomains: hereSubdomains
 }).addTo(map);
+*/
+
+
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+  //L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: '© Esri, Maxar, Earthstar Geographics',
+        maxZoom: 20
+    }).addTo(map);
 
 /*
+const hereTrafficTileUrl = `https://traffic.maps.hereapi.com/v3/flow/mc/{z}/{x}/{y}/png8?size=256&apiKey=${apiKey}`;
 L.tileLayer(hereTrafficTileUrl, {
   attribution: '地图数据 &copy; <a href="https://developer.here.com">HERE</a>',
   maxZoom: 20,
@@ -930,11 +946,10 @@ if (bounds.isValid()) {  // 确保边界框有效（非空）
   const ne = bounds.getNorthEast();
 }
 
+      resultEl.style.color = "limegreen";
+   resultEl.textContent = "Completed."
     console.log('GeoJSON loaded & rendered');
 
-
-      resultEl.style.color = "limegreen";
-   resultEl.textContent = "Completed"
   } catch (err) {
     console.error('加载 GeoJSON 错误:', err);
   }
@@ -1030,10 +1045,13 @@ ws.onmessage = (evt) => {
               console.log('GeoJSON load ISA Layer');
         loadIsaLayer();
         }
-  
-      
-
     }
+        if (msg.type === 'dir-file-count-updated') {
+      console.log('收到 dir-file-count-updated，重新加载数据...');
+      const resultEl = document.getElementById("formResult");
+      resultEl.style.color = "limegreen";
+   resultEl.textContent = "JSON Generated"
+        }
   } catch (e) {
     // 也可能是简单字符串
     if (evt.data === 'update' || evt.data === 'geojson-updated') {

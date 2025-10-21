@@ -9,6 +9,7 @@
 logs
 *.log
 *.geojson
+*.json
 npm-debug.log*
 /diskcache/
 /node_modules/
